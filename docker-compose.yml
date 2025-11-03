@@ -1,0 +1,172 @@
+networks:
+  media-net:
+    external: true
+
+services:
+  protonvpn:
+    image: docker.io/qmcgaw/gluetun:latest
+    container_name: protonvpn
+    networks:
+      - media-net
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - 8080:8080 # This is for the qBittorrent WebUI Port
+      - 8000:8000
+      - 6789:6789 # nzbget UI port
+      # - 6881:6881 # Listening port for TCP
+      # - 6881:6881/udp # Listening port for UDP
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - VPN_PORT_FORWARDING=on
+      - SERVER_COUNTRIES=Canada # The server countries we'll use. They have to be P2P
+    volumes:
+      - ${CONFIG_DIR}/gluetun:/gluetun
+    restart: unless-stopped
+
+  nzbget:
+    image: linuxserver/nzbget
+    container_name: nzbget
+    network_mode: service:protonvpn
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/nzbget:/config
+      - ${MEDIA_DIR}/downloads:/downloads
+    depends_on:
+      - protonvpn
+    restart: unless-stopped
+    
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080 # This needs to be the exact same port we used on glueton for the WebUI
+      - TORRENTING_PORT=6881
+    volumes:
+      - ${CONFIG_DIR}/qbittorrent:/config
+      - ${MEDIA_DIR}/downloads:/downloads
+    network_mode: service:protonvpn # qBittorrent uses the VPN container's network
+    depends_on:
+      - protonvpn # Ensure the VPN container starts first
+    restart: unless-stopped
+      
+  radarr:
+    image: linuxserver/radarr:latest
+    container_name: radarr
+    networks:
+      - media-net
+    restart: unless-stopped
+    ports:
+      - 7878:7878
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONFIG_DIR}/radarr:/config
+      - ${MEDIA_DIR}/movies:/movies
+      - ${MEDIA_DIR}/downloads:/downloads
+
+  sonarr:
+    container_name: sonarr
+    image: linuxserver/sonarr:latest
+    restart: unless-stopped
+    networks:
+      - media-net
+    environment:
+      - PUID=${PUID} 
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - 8989:8989
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ${CONFIG_DIR}/sonarr:/config
+      - ${MEDIA_DIR}/tvseries:/tv
+      - ${MEDIA_DIR}/downloads:/downloads
+
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    networks:
+      - media-net
+    # network_mode: host
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    ports:
+      - 32400:32400/tcp  # Essential for connection
+      - 3005:3005/tcp    # Optional (Plex Companion)
+      - 8324:8324/tcp    # Optional (DLNA)
+      - 32469:32469/tcp  # Optional (DLNA)
+      - 1900:1900/udp
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+    volumes:
+      - ${CONFIG_DIR}/plex/db:/config
+      - ${CONFIG_DIR}/plex/transcode:/transcode # temp transcoded files
+      - ${MEDIA_DIR}:/data # media library
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    networks:
+      - media-net
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - ${CONFIG_DIR}/prowlarr:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+
+  overseerr:
+    image: sctx/overseerr:latest
+    container_name: overseerr
+    networks:
+      - media-net
+    environment:
+      - LOG_LEVEL=debug
+      - TZ=${TZ}
+      - PORT=5055 #optional
+    ports:
+      - 5055:5055
+    volumes:
+      - ${CONFIG_DIR}/overseerr:/app/config
+    restart: unless-stopped
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    networks:
+      - media-net
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/bazarr:/config
+      - ${MEDIA_DIR}/movies:/movies
+      - ${MEDIA_DIR}/tvseries:/tv
+    ports:
+      - 6767:6767
+    restart: unless-stopped
